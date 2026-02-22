@@ -26,6 +26,12 @@ html,body { width:100%; height:100%; background:#000; color:#fff; font-family:'C
 #hud .atk-fill { position:absolute; top:0; left:0; bottom:0; background:#557; }
 #hud #fx-bar { display:flex; gap:5px; align-items:center; }
 #hud .fx-pill { font-size:10px; padding:1px 5px; border:1px solid #333; color:#888; }
+#fullscreen-btn {
+  background:none; border:1px solid #333; color:#666; padding:2px 6px; 
+  cursor:pointer; font-family:'Courier New'; font-size:10px; user-select:none; pointer-events:auto;
+}
+#fullscreen-btn:hover { color:#aaa; border-color:#555; }
+#fullscreen-btn.active { color:#4a4; border-color:#4a4; }
 canvas { display:block; }
 #msg {
   position:fixed; bottom:0; left:0; right:0; padding:4px 18px;
@@ -156,6 +162,7 @@ canvas { display:block; }
   <div><span class="label">WPN</span> &nbsp;<span class="val" id="h-wpn">fists</span></div>
   <div id="fx-bar"></div>
   <div><span class="label">KILLS</span> <span class="val" id="h-kills">0</span> &nbsp; <span class="label">SCORE</span> <span class="val" id="h-score">0</span></div>
+  <div><span class="label">FULLSCREEN</span> <button id="fullscreen-btn">[F]</button></div>
 </div>
 <canvas id="c"></canvas>
 <div id="msg"><span id="msg-text"></span></div>
@@ -186,6 +193,7 @@ canvas { display:block; }
       &gt; tile &nbsp;<span>descend floor</span><br>
       M &nbsp;<span>toggle minimap</span><br>
       L &nbsp;<span>toggle legend</span><br>
+      F &nbsp;<span>toggle fullscreen</span><br>
       P / ESC &nbsp;<span>pause</span>
     </div>
   </div>
@@ -231,12 +239,10 @@ const TILE  = { WALL:0, FLOOR:1, STAIR:2 };
 // ── Colours ──────────────────────────────────────────────────────────
 const COL = {
   bg:          '#000',
-  // Wall shading: one colour, char density encodes depth
-  // oc=0 (deep interior) = sparsest (·  ,)  oc=1 = medium (░ #)  oc>=2 (edge) = densest (▓)
-  wallBg:      '#0a0a12',   // uniform bg for all wall tiles
-  wallChDeep:  '#2a2a44',   // interior — sparse chars, same hue
-  wallChMid:   '#2a2a44',   // mid — same colour, denser chars
-  wallChEdge:  '#2a2a44',   // edge — same colour, densest chars
+  wallBg:      '#0a0a12',
+  wallChDeep:  '#2a2a44',
+  wallChMid:   '#2a2a44',
+  wallChEdge:  '#2a2a44',
   wallEdgeLine:'#6060a0',
   floorBg:     '#060609',  floorDot:'#14141e',
   stairBg:     '#0d0d00',  stairChar:'#cccc00',
@@ -246,52 +252,34 @@ const COL = {
 
 // ═══════════════════════════════════════════════════════════════════════
 //  ENEMY DEFINITIONS
-//  size: 1 = 1×1 tile, 2 = 2×2 tile footprint
-//  armor: flat dmg reduction
-//  attackRate: ms between enemy attacks (separate from move)
-//  counterChance: 0-1 chance to immediately counter-attack when hit
 // ═══════════════════════════════════════════════════════════════════════
-// special flags:
-//   enrage:    {hpPct, dmgBonus, moveRateBonus}  — triggers once at low HP
-//   summon:    {type, count, onFirstHit}          — spawns minions
-//   ranged:    {range, fleeDist}                  — attacks from distance, flees melee
-//   selfRegen: hpPerTick                          — heals itself over time
-//   onDeath:   {type, count}                      — spawns enemies on death
-//   slowPlayer: ms                                — slows player move on hit
-//   mimic:     true                               — disguised as item until triggered
 const ENEMY_DEFS = {
-  // ── Floor 1 ──────────────────────────────────────────────────────────
   giant_rat:  { ch:'r', col:'#aa7733', hp:4,  dmg:1, armor:0, moveRate:14, attackRate:600,  counterChance:0.1, size:1, minFloor:1, pts:40,  name:'giant rat',      flavor:'Skitters in packs. Easy prey, but never alone.' },
   goblin:     { ch:'g', col:'#44bb44', hp:6,  dmg:1, armor:0, moveRate:22, attackRate:800,  counterChance:0.1, size:1, minFloor:1, pts:60,  name:'goblin',         flavor:'Weak alone, but fast. Tends to swarm.' },
   bat:        { ch:'b', col:'#886688', hp:3,  dmg:1, armor:0, moveRate:12, attackRate:500,  counterChance:0.2, size:1, minFloor:1, pts:35,  name:'bat',            flavor:'Erratic and frail. Hits before you notice it.' },
   skeleton:   { ch:'s', col:'#aaaaaa', hp:8,  dmg:2, armor:1, moveRate:20, attackRate:900,  counterChance:0.2, size:1, minFloor:1, pts:80,  name:'skeleton',       flavor:'Brittle bones deflect weak blows. Relentless.' },
-  // ── Floor 2 ──────────────────────────────────────────────────────────
   ghost:      { ch:'G', col:'#7777ee', hp:10, dmg:2, armor:0, moveRate:16, attackRate:700,  counterChance:0.3, size:1, minFloor:2, pts:100, name:'ghost',          flavor:'No armor, but swift and hard to pin down.' },
   zombie:     { ch:'z', col:'#556644', hp:14, dmg:2, armor:0, moveRate:40, attackRate:1200, counterChance:0.1, size:1, minFloor:2, pts:90,  name:'zombie',         flavor:'Slow and shambling, but it never truly dies.', selfRegen:0.8 },
   spider:     { ch:'S', col:'#cc8833', hp:7,  dmg:2, armor:0, moveRate:18, attackRate:700,  counterChance:0.4, size:1, minFloor:2, pts:85,  name:'spider',         flavor:'Fast legs, high counter chance. Watch your step.' },
   troll:      { ch:'T', col:'#ee5533', hp:28, dmg:3, armor:2, moveRate:38, attackRate:1200, counterChance:0.4, size:2, minFloor:2, pts:200, name:'troll',          flavor:'Thick hide. Slow but hits hard. Takes two tiles.' },
   archer:     { ch:'a', col:'#88bb55', hp:8,  dmg:3, armor:0, moveRate:24, attackRate:900,  counterChance:0.1, size:1, minFloor:2, pts:95,  name:'archer',         flavor:'Shoots on sight. Retreats when you close in.', ranged:{range:8,fleeDist:3} },
-  // ── Floor 3 ──────────────────────────────────────────────────────────
   wraith:     { ch:'W', col:'#aa55ff', hp:16, dmg:4, armor:1, moveRate:14, attackRate:600,  counterChance:0.5, size:1, minFloor:3, pts:200, name:'wraith',         flavor:'Fastest enemy. High counter chance. Fears nothing.' },
   mimic:      { ch:'?', col:'#cc9933', hp:14, dmg:4, armor:1, moveRate:20, attackRate:800,  counterChance:0.3, size:1, minFloor:3, pts:180, name:'mimic',          flavor:'Disguised as an item. Triggered when you walk near.', mimic:true },
   fire_elem:  { ch:'e', col:'#ff6622', hp:18, dmg:4, armor:0, moveRate:22, attackRate:750,  counterChance:0.35,size:1, minFloor:3, pts:170, name:'fire elemental', flavor:'No armor, but enrages at low HP. Keep your distance.', enrage:{hpPct:0.3,dmgBonus:3,moveRateBonus:-8} },
-  // ── Floor 4 ──────────────────────────────────────────────────────────
   vampire:    { ch:'V', col:'#cc2244', hp:22, dmg:4, armor:1, moveRate:20, attackRate:750,  counterChance:0.4, size:1, minFloor:4, pts:240, name:'vampire',        flavor:'Enrages below 30% HP — faster and deadlier.', enrage:{hpPct:0.3,dmgBonus:3,moveRateBonus:-10} },
   ogre:       { ch:'O', col:'#ff8844', hp:45, dmg:5, armor:3, moveRate:42, attackRate:1500, counterChance:0.3, size:2, minFloor:4, pts:300, name:'ogre',           flavor:'Massive. Heavy armor. Avoid unless well-armed.' },
-  // ── Floor 5 ──────────────────────────────────────────────────────────
   demon:      { ch:'&', col:'#ff3366', hp:30, dmg:5, armor:2, moveRate:20, attackRate:700,  counterChance:0.6, size:1, minFloor:5, pts:280, name:'demon',          flavor:'Cunning. Highest counter-attack rate of any foe.' },
   lich:       { ch:'L', col:'#aaddff', hp:35, dmg:5, armor:2, moveRate:24, attackRate:800,  counterChance:0.3, size:1, minFloor:5, pts:350, name:'lich',           flavor:'Summons skeletons when first struck. Do not let it stall.', summon:{type:'skeleton',count:2,onFirstHit:true} },
   dark_mage:  { ch:'m', col:'#8844cc', hp:20, dmg:6, armor:1, moveRate:26, attackRate:900,  counterChance:0.3, size:1, minFloor:5, pts:300, name:'dark mage',      flavor:'Summons a goblin each time you strike it.', summon:{type:'goblin',count:1,onFirstHit:false} },
   ice_golem:  { ch:'I', col:'#88ddff', hp:55, dmg:4, armor:5, moveRate:48, attackRate:1600, counterChance:0.2, size:2, minFloor:5, pts:380, name:'ice golem',      flavor:'Immense armor. Slows your movement on every hit.', slowPlayer:3000 },
-  // ── Floor 6+ ─────────────────────────────────────────────────────────
   void_horror:{ ch:'v', col:'#cc44ff', hp:65, dmg:6, armor:3, moveRate:32, attackRate:1100, counterChance:0.4, size:2, minFloor:7, pts:500, name:'void horror',    flavor:'Splits into two void shards when slain.', onDeath:{type:'void_shard',count:2} },
   void_shard: { ch:'·', col:'#dd88ff', hp:12, dmg:3, armor:0, moveRate:16, attackRate:600,  counterChance:0.2, size:1, minFloor:99,pts:80,  name:'void shard',     flavor:'A fragment of the void horror. Still dangerous.' },
   dragon:     { ch:'@', col:'#ff2222', hp:80, dmg:7, armor:4, moveRate:30, attackRate:1000, counterChance:0.5, size:2, minFloor:6, pts:600, name:'dragon',         flavor:'Ancient. Enormous. Do not engage without potions.' },
 };
 
 // ═══════════════════════════════════════════════════════════════════════
-//  WEAPON DEFINITIONS  (dmg = total player dmg, replaces base)
-// ═══════════════════════════════════════════════════════════════════════
+//  WEAPON DEFINITIONS
+// ═══════���═══════════════════════════════════════════════════════════════
 const WEAPON_DEFS = {
   dagger:  { ch:')', col:'#cc9933', dmg:4,  attackMs:300, name:'dagger',  desc:'fast, light'  },
   sword:   { ch:'/', col:'#ccccee', dmg:7,  attackMs:500, name:'sword',   desc:'balanced'     },
@@ -318,9 +306,9 @@ const G = {
   phase: 'title',
   floor: 1,
   map: null, rooms: [],
-  wallOC: null,      // open-count per wall tile
+  wallOC: null,
   player: { x:2, y:2, hp:10, maxHp:10, baseDmg:3, baseAttackMs:500, weapon:null,
-            atkCooldown:0 },  // ms until next attack allowed
+            atkCooldown:0 },
   enemies: [],
   items: [],
   effects: {},
@@ -329,8 +317,8 @@ const G = {
   passRegenTick:0,
   attackFlash: [],
   dmgFlash: [],
-  floatTexts: [],   // [{x,y,text,col,t,vy}] floating damage numbers
-  projectiles: [],  // [{x,y,vx,vy,dmg,t,id}] archer arrows
+  floatTexts: [],
+  projectiles: [],
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -379,7 +367,6 @@ function genMap(floor) {
     const last=rooms[rooms.length-1];
     map[Math.floor(last.y+last.h/2)][Math.floor(last.x+last.w/2)]=TILE.STAIR;
   }
-  // precompute open-neighbour count
   const oc=[];
   for(let y=0;y<MAP_H;y++) oc.push(new Array(MAP_W).fill(0));
   for(let y=0;y<MAP_H;y++) for(let x=0;x<MAP_W;x++){
@@ -395,7 +382,6 @@ function genMap(floor) {
 }
 
 function spawnEnemies(rooms,floor){
-  // eligible: normal spawnable enemies (not void_shard which is spawned on death, not mimic which is handled separately)
   const eligible=Object.entries(ENEMY_DEFS).filter(([k,d])=>d.minFloor<=floor && d.minFloor<99 && !d.mimic);
   const weighted=[];
   for(const entry of eligible){
@@ -417,7 +403,6 @@ function spawnEnemies(rooms,floor){
 }
 
 function spawnMimics(rooms,floor){
-  // Mimics only appear floor 3+, 1-2 per floor
   if(floor<3) return [];
   const pool=rooms.slice(1);
   if(!pool.length) return [];
@@ -427,7 +412,6 @@ function spawnMimics(rooms,floor){
     const r=pool[Math.floor(Math.random()*pool.length)];
     const mx=r.x+1+Math.floor(Math.random()*Math.max(1,r.w-2));
     const my=r.y+1+Math.floor(Math.random()*Math.max(1,r.h-2));
-    // Store as a fake item entry; kind='mimic' so we can detect and trigger
     mimics.push({x:mx,y:my,kind:'mimic',type:'mimic',id:Math.random()});
   }
   return mimics;
@@ -441,10 +425,9 @@ function makeEnemy(type,x,y){
     moveTick:0, atkCooldown:0,
     path:[], pathTick:0,
     id:Math.random(),
-    // special state
     enraged:false,
-    summoned:false,       // lich/dark_mage: have we already summoned?
-    regenTick:0,          // zombie self-regen
+    summoned:false,
+    regenTick:0,
   };
 }
 
@@ -509,7 +492,7 @@ function startGame(){
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BFS PATHFINDING
-// ═══════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════���══════════════════════
 function bfsStep(sx,sy,tx,ty,maxDist){
   if(sx===tx&&sy===ty) return null;
   const visited=new Map();
@@ -525,7 +508,6 @@ function bfsStep(sx,sy,tx,ty,maxDist){
       if(visited.has(key)) continue;
       visited.set(key,[cx,cy]);
       if(nx===tx&&ny===ty){
-        // walk back to find first step
         let node=[nx,ny],prev=visited.get(key);
         while(prev&&(prev[0]!==sx||prev[1]!==sy)){node=prev;prev=visited.get(`${prev[0]},${prev[1]}`);}
         return node;
@@ -537,26 +519,83 @@ function bfsStep(sx,sy,tx,ty,maxDist){
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+//  DEVICE DETECTION & FULLSCREEN
+// ═══════════════════════════════════════════════════════════════════════
+const DEVICE = {
+  isTouchDevice: () => {
+    return (('ontouchstart' in window) || 
+            (navigator.maxTouchPoints > 0) || 
+            (navigator.msMaxTouchPoints > 0));
+  },
+  isPhone: () => {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  },
+  get type() {
+    return this.isPhone() || this.isTouchDevice() ? 'mobile' : 'desktop';
+  }
+};
+
+function requestFullscreen() {
+  const elem = document.documentElement;
+  if (elem.requestFullscreen) {
+    elem.requestFullscreen();
+  } else if (elem.webkitRequestFullscreen) {
+    elem.webkitRequestFullscreen();
+  } else if (elem.msRequestFullscreen) {
+    elem.msRequestFullscreen();
+  }
+}
+
+function exitFullscreen() {
+  if (document.fullscreenElement) {
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    } else if (document.msExitFullscreen) {
+      document.msExitFullscreen();
+    }
+  }
+}
+
+function toggleFullscreen() {
+  if (!document.fullscreenElement && 
+      !document.webkitFullscreenElement && 
+      !document.msFullscreenElement) {
+    requestFullscreen();
+  } else {
+    exitFullscreen();
+  }
+}
+
+function updateFullscreenButton() {
+  const btn = document.getElementById('fullscreen-btn');
+  if (btn) {
+    const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement;
+    btn.classList.toggle('active', !!isFullscreen);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 //  INPUT
 // ═══════════════════════════════════════════════════════════════════════
 const keys={};
 document.addEventListener('keydown',e=>{
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
 
-  // Escape / P — close minimap if open, else toggle pause
   if((e.key==='Escape'||e.key==='p'||e.key==='P') && (G.phase==='playing'||G.phase==='paused')){
     if(MM.expanded){ toggleMinimap(); return; }
     togglePause(); return;
   }
-  // M — toggle fullscreen map
   if((e.key==='m'||e.key==='M') && (G.phase==='playing'||MM.expanded)){
     toggleMinimap(); return;
   }
-  // L — toggle legend (only from playing, or to close it)
   if((e.key==='l'||e.key==='L') && (G.phase==='playing' || legendOpen)){
     toggleLegend(); return;
   }
-  // Pause menu navigation
+  if((e.key==='f'||e.key==='F')){
+    toggleFullscreen(); return;
+  }
   if(G.phase==='paused'){
     if(e.key==='ArrowUp'||e.key==='ArrowDown') pauseNav(e.key==='ArrowUp'?-1:1);
     if(e.key==='Enter') pauseSelect();
@@ -572,7 +611,6 @@ let camPX=0,camPY=0,camTX=0,camTY=0;
 
 function inputTick(dt){
   if(G.phase!=='playing') return;
-  // tick attack cooldown
   if(G.player.atkCooldown>0){
     G.player.atkCooldown=Math.max(0,G.player.atkCooldown-dt);
     updateHUDAtk();
@@ -614,13 +652,11 @@ function tryMove(dx,dy){
 //  COMBAT
 // ═══════════════════════════════════════════════════════════════════════
 function attackEnemy(enemy){
-  // Attack cooldown gate
   if(G.player.atkCooldown>0){
     msg(`Your attack isn't ready yet!`);
     return;
   }
   const def=ENEMY_DEFS[enemy.type];
-  // Damage roll: base +0–3 random, minus armor
   let dmg=playerDmg()+Math.floor(Math.random()*4);
   const blocked=Math.max(0,def.armor-Math.floor(Math.random()*2));
   dmg=Math.max(1,dmg-blocked);
@@ -629,7 +665,6 @@ function attackEnemy(enemy){
   spawnFloat(enemy.x,enemy.y,`-${dmg}`,'#ffdd44');
   if(blocked>0) spawnFloat(enemy.x,enemy.y-1,`(${blocked} blocked)`,'#8888aa');
 
-  // Set player attack cooldown
   G.player.atkCooldown=playerAtkMs();
   updateHUDAtk();
 
@@ -642,14 +677,12 @@ function attackEnemy(enemy){
 
   msg(`You hit the ${def.name} for ${dmg}${blocked>0?` (${blocked} blocked)`:''}. [${Math.max(0,enemy.hp)}/${enemy.maxHp} HP]`);
 
-  // Enrage check — triggers once when HP drops below threshold
   if(def.enrage && !enemy.enraged && enemy.hp/enemy.maxHp <= def.enrage.hpPct){
     enemy.enraged=true;
     spawnFloat(enemy.x,enemy.y,'ENRAGED!',def.col);
     msg(`The ${def.name} ENRAGES — it becomes faster and hits harder!`);
   }
 
-  // Summon on hit (dark_mage every hit; lich only first hit)
   if(def.summon){
     const alreadySummoned = def.summon.onFirstHit && enemy.summoned;
     if(!alreadySummoned){
@@ -658,7 +691,6 @@ function attackEnemy(enemy){
     }
   }
 
-  // Counter-attack: enemy immediately retaliates with a chance based on their def
   if(Math.random()<def.counterChance && enemy.atkCooldown<=0){
     const cdmg=enemyAttackPlayer(enemy,def);
     if(cdmg>0) msg(`The ${def.name} counter-attacks for ${cdmg}!`);
@@ -672,11 +704,9 @@ function killEnemy(enemy,def){
   spawnFloat(enemy.x,enemy.y,'KILLED','#ff6644');
   msg(`The ${def.name} dies! (+${def.pts})`);
   updateHUD();
-  // onDeath: spawn shards/fragments
   if(def.onDeath){
     const {type,count}=def.onDeath;
     for(let i=0;i<count;i++){
-      // scatter slightly
       const ox=[0,1,0,-1][i]||0, oy=[0,0,1,0][i]||0;
       const sx=enemy.x+ox, sy=enemy.y+oy;
       if(G.map[sy]&&G.map[sy][sx]!==TILE.WALL){
@@ -691,7 +721,6 @@ function killEnemy(enemy,def){
 }
 
 function enemyAttackPlayer(enemy,def){
-  // Apply live enrage stats
   const dmgBonus = (def.enrage && enemy.enraged) ? def.enrage.dmgBonus : 0;
   let dmg=(def.dmg+dmgBonus)+(Math.random()<0.3?1:0);
   dmg=Math.max(1,dmg);
@@ -699,7 +728,6 @@ function enemyAttackPlayer(enemy,def){
   G.dmgFlash.push(0.45);
   spawnFloat(G.player.x,G.player.y,`-${dmg}`,'#ff4444');
   updateHUD();
-  // Ice golem slows player on hit
   if(def.slowPlayer){
     G.effects.slow={t:def.slowPlayer};
     spawnFloat(G.player.x,G.player.y,'SLOWED','#88ccff');
@@ -732,7 +760,6 @@ function spawnFloat(gx,gy,text,col){
   
 function pickupItem(item){
   if(item.kind==='mimic'){
-    // Mimic reveals! Spawn a real mimic enemy at that position
     G.items=G.items.filter(i=>i.id!==item.id);
     const e=makeEnemy('mimic',item.x,item.y);
     G.enemies.push(e);
@@ -746,7 +773,7 @@ function pickupItem(item){
     const def=WEAPON_DEFS[item.type];
     const old=G.player.weapon;
     G.player.weapon=item.type;
-    const dropped=old?` (dropped ${WEAPON_DEFS[old].name})`:'';
+    const dropped=old?` (dropped ${WEAPON_DEFS[old].name})`:' ';
     msg(`Picked up ${def.name}! ${def.desc}${dropped}`);
     updateHUD();
   } else {
@@ -780,23 +807,19 @@ function applyPotion(def){
 function enemyTick(dt){
   if(G.phase!=='playing') return;
 
-  // Tick player effects
   for(const key of Object.keys(G.effects)){
     G.effects[key].t-=dt;
     if(G.effects[key].t<=0){ delete G.effects[key]; msg(`${key} wears off.`); updateHUD(); }
   }
 
-  // Regen potion
   if(G.effects.regen){
     G.regenTick+=dt;
     if(G.regenTick>1200){ G.regenTick=0; healPlayer(G.effects.regen.val); }
   }
 
-  // Passive regen (1 HP / 8s)
   G.passRegenTick+=dt;
   if(G.passRegenTick>8000){ G.passRegenTick=0; healPlayer(1); }
 
-  // Tick projectiles
   G.projectiles=G.projectiles.filter(p=>p.t>0);
   for(const p of G.projectiles){
     p.t-=dt;
@@ -821,7 +844,6 @@ function enemyTick(dt){
     e.moveTick+=dt;
     if(e.atkCooldown>0) e.atkCooldown=Math.max(0,e.atkCooldown-dt);
 
-    // Zombie self-regen
     if(def.selfRegen){
       e.regenTick=(e.regenTick||0)+dt;
       if(e.regenTick>3000){ e.regenTick=0; e.hp=Math.min(e.maxHp,e.hp+Math.ceil(def.selfRegen)); }
@@ -829,12 +851,9 @@ function enemyTick(dt){
 
     const dist=Math.abs(px-e.x)+Math.abs(py-e.y);
 
-    // ── ARCHER special: ranged attack + flee ─────────────────────────
     if(def.ranged){
       const {range,fleeDist}=def.ranged;
-      // If player is too close, flee
       if(dist<=fleeDist){
-        // move away from player
         if(e.moveTick>=def.moveRate*(1000/60)){
           e.moveTick=0;
           const best=fleeStep(e.x,e.y,px,py);
@@ -842,10 +861,8 @@ function enemyTick(dt){
         }
         continue;
       }
-      // Ranged attack when in range + cooldown ready
       if(dist<=range && e.atkCooldown<=0 && hasLOS(e.x,e.y,px,py)){
         const dmg=def.dmg+(Math.random()<0.25?1:0);
-        // Fire projectile
         const dx2=px-e.x, dy2=py-e.y;
         const len=Math.sqrt(dx2*dx2+dy2*dy2)||1;
         G.projectiles.push({px:e.x,py:e.y,vx:dx2/len,vy:dy2/len,dmg,t:1200,id:Math.random()});
@@ -853,7 +870,6 @@ function enemyTick(dt){
         msg(`The archer fires an arrow!`);
         continue;
       }
-      // Move toward player (stay in range but not too close)
       if(dist>range && e.moveTick>=def.moveRate*(1000/60)){
         e.moveTick=0;
         const step=bfsStep(e.x,e.y,px,py,22);
@@ -862,7 +878,6 @@ function enemyTick(dt){
       continue;
     }
 
-    // ── Standard melee AI ────────────────────────────────────────────
     const adjacent=isEnemyAdjacentToPlayer(e,def);
 
     if(adjacent && e.atkCooldown<=0){
@@ -871,7 +886,6 @@ function enemyTick(dt){
       continue;
     }
 
-    // Enrage: apply speed boost
     const enragedRate = (def.enrage&&e.enraged)
       ? def.moveRate + def.enrage.moveRateBonus
       : def.moveRate;
@@ -880,7 +894,7 @@ function enemyTick(dt){
     if(e.moveTick<rate) continue;
     e.moveTick=0;
 
-    if(dist>16) continue; // aggro range
+    if(dist>16) continue;
 
     e.pathTick=(e.pathTick||0)+1;
     if(!e.path||e.path.length===0||e.pathTick%4===0){
@@ -899,7 +913,6 @@ function enemyTick(dt){
   }
 }
 
-// ── AI helpers ───────────────────────────────────────────────────────
 function enemyOccupies(nx,ny,self){
   return G.enemies.some(o=>{
     if(o===self) return false;
@@ -910,7 +923,6 @@ function enemyOccupies(nx,ny,self){
 }
 
 function fleeStep(ex,ey,px,py){
-  // Return the walkable neighbour that maximises distance from player
   const dirs=[[0,-1],[0,1],[-1,0],[1,0]];
   let best=null, bestDist=-1;
   for(const[dx,dy] of dirs){
@@ -924,7 +936,6 @@ function fleeStep(ex,ey,px,py){
 }
 
 function hasLOS(x0,y0,x1,y1){
-  // Simple Bresenham line-of-sight check
   let dx=Math.abs(x1-x0),dy=Math.abs(y1-y0);
   let sx=x0<x1?1:-1, sy=y0<y1?1:-1;
   let err=dx-dy;
@@ -989,7 +1000,6 @@ function draw(){
 
   const{x0,x1,y0,y1}=visibleRange();
 
-  // Pass 1: backgrounds
   for(let gy=Math.max(0,y0);gy<=Math.min(MAP_H-1,y1);gy++){
     for(let gx=Math.max(0,x0);gx<=Math.min(MAP_W-1,x1);gx++){
       const t=G.map[gy][gx];
@@ -1005,7 +1015,6 @@ function draw(){
     }
   }
 
-  // Pass 2: characters + edge lines
   for(let gy=Math.max(0,y0);gy<=Math.min(MAP_H-1,y1);gy++){
     for(let gx=Math.max(0,x0);gx<=Math.min(MAP_W-1,x1);gx++){
       const t=G.map[gy][gx];
@@ -1017,17 +1026,13 @@ function draw(){
         const oc=G.wallOC[gy][gx];
         ctx.fillStyle=COL.wallChDeep;
         if(oc===0){
-          // deep interior — sparsest: mostly empty, occasional · or ,
           const wc = h<8?'·': h<16?',': h<28?'·': null;
           if(wc) ctx.fillText(wc,ccx,ccy);
         } else if(oc===1){
-          // one open neighbour — medium density: # and ░
           ctx.fillText(h<35?'░': h<65?'#': h<80?'▒': '░', ccx,ccy);
         } else {
-          // edge (≥2 open neighbours) — densest: solid ▓
           ctx.fillText(h<60?'▓':'▒', ccx,ccy);
         }
-        // Edge lines
         ctx.strokeStyle=COL.wallEdgeLine; ctx.lineWidth=1.5;
         const off=0.75;
         if(isOpen(gx,gy-1)){ctx.beginPath();ctx.moveTo(sx,sy+off);ctx.lineTo(sx+TS,sy+off);ctx.stroke();}
@@ -1045,12 +1050,10 @@ function draw(){
     }
   }
 
-  // Items + mimics
   for(const item of G.items){
     const{sx,sy}=tileToScreen(item.x,item.y);
     if(sx<-TS||sy<-TS||sx>canvas.width+TS||sy>canvas.height+TS) continue;
     if(item.kind==='mimic'){
-      // Draw as a tempting gold ? to blend with weapons/potions
       ctx.fillStyle='#cc9933';
       ctx.fillText('?',sx+TS/2,sy+TS/2);
     } else {
@@ -1060,31 +1063,25 @@ function draw(){
     }
   }
 
-  // Projectiles (archer arrows)
   for(const p of G.projectiles){
     if(p.t<=0) continue;
     const{sx,sy}=tileToScreen(Math.round(p.px),Math.round(p.py));
     if(sx<-TS||sy<-TS||sx>canvas.width+TS||sy>canvas.height+TS) continue;
     ctx.fillStyle=`rgba(255,200,80,${Math.min(1,p.t/400)})`;
     ctx.font=`${TS}px 'Courier New'`;
-    // Pick arrow char based on direction
     const ch = Math.abs(p.vx)>Math.abs(p.vy) ? (p.vx>0?'→':'←') : (p.vy>0?'↓':'↑');
     ctx.fillText(ch,sx+TS/2,sy+TS/2);
   }
 
-  // Enemies
   for(const e of G.enemies){
     const{sx,sy}=tileToScreen(e.x,e.y);
     if(sx<-TS*3||sy<-TS*3||sx>canvas.width+TS*3||sy>canvas.height+TS*3) continue;
     const def=ENEMY_DEFS[e.type];
     const isLarge=def.size===2;
     const w=isLarge?TS*2-2:TS-2;
-    const drawW=isLarge?TS*2:TS;
 
-    // HP bar
     ctx.fillStyle='#1a0000'; ctx.fillRect(sx+1,sy,w,2);
     ctx.fillStyle='#880000'; ctx.fillRect(sx+1,sy,w*(e.hp/e.maxHp),2);
-    // Armor bar
     if(def.armor>0){
       const maxArmor=def.armor*2;
       ctx.fillStyle='#00001a'; ctx.fillRect(sx+1,sy+3,w,2);
@@ -1093,7 +1090,6 @@ function draw(){
 
     ctx.fillStyle=def.col;
     if(isLarge){
-      // Draw 2×2: large char centred over 2×2 tile area
       ctx.font=`bold ${TS*2-2}px 'Courier New'`;
       ctx.fillText(def.ch, sx+TS, sy+TS+3);
       ctx.font=`${TS}px 'Courier New'`;
@@ -1102,19 +1098,16 @@ function draw(){
     }
   }
 
-  // Player — flash red when cooldown active
   {
     const{sx,sy}=tileToScreen(G.player.x,G.player.y);
     if(G.effects.speed){ ctx.fillStyle='rgba(80,255,180,0.07)'; ctx.fillRect(sx,sy,TS,TS); }
     if(G.effects.str){ ctx.fillStyle='rgba(255,120,60,0.07)'; ctx.fillRect(sx,sy,TS,TS); }
-    // Cooldown indicator: slight dim when can't attack
     const atkReady=G.player.atkCooldown<=0;
     ctx.fillStyle=atkReady?COL.player:'#888888';
     ctx.font=`${TS}px 'Courier New'`;
     ctx.fillText('@',sx+TS/2,sy+TS/2);
   }
 
-  // Attack flashes
   G.attackFlash=G.attackFlash.filter(f=>f.t>0);
   for(const f of G.attackFlash){
     const{sx,sy}=tileToScreen(f.x,f.y);
@@ -1124,15 +1117,12 @@ function draw(){
     f.t-=16;
   }
 
-  // Floating damage text
   G.floatTexts=G.floatTexts.filter(f=>f.t>0);
   for(const f of G.floatTexts){
     const{sx,sy}=tileToScreen(f.gx,f.gy);
     const progress=1-(f.t/800);
     const alpha=f.t<300?f.t/300:1;
     const fy=sy+TS/2-progress*24;
-    ctx.fillStyle=f.col.replace(')',`,${alpha})`).replace('rgb','rgba').replace('rgba(#','rgba(');
-    // simple approach: just set alpha via globalAlpha
     ctx.globalAlpha=alpha;
     ctx.font=`bold 11px 'Courier New'`;
     ctx.textAlign='center';
@@ -1144,7 +1134,6 @@ function draw(){
   ctx.font=`${TS}px 'Courier New'`;
   ctx.textAlign='center'; ctx.textBaseline='middle';
 
-  // Damage vignette
   if(G.dmgFlash.length){
     const a=Math.max(...G.dmgFlash);
     const grd=ctx.createRadialGradient(canvas.width/2,canvas.height/2,canvas.height*0.1,canvas.width/2,canvas.height/2,canvas.height*0.7);
@@ -1153,7 +1142,6 @@ function draw(){
     G.dmgFlash=G.dmgFlash.map(v=>v-0.022).filter(v=>v>0);
   }
 
-  // Fog vignette
   const fg=ctx.createRadialGradient(canvas.width/2,canvas.height/2,canvas.height*0.22,canvas.width/2,canvas.height/2,canvas.height*0.72);
   fg.addColorStop(0,'rgba(0,0,0,0)'); fg.addColorStop(1,'rgba(0,0,0,0.88)');
   ctx.fillStyle=fg; ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -1231,7 +1219,7 @@ draw();
 
 // ═══════════════════════════════════════════════════════════════════════
 //  MINIMAP
-// ═══════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════��═══════════════════════════════
 const MM = { expanded: false, SIZE_SMALL: 120 };
 
 function renderMapToCanvas(mc, fullscreen){
@@ -1258,7 +1246,6 @@ function renderMapToCanvas(mc, fullscreen){
     const esz=ENEMY_DEFS[e.type].size;
     mctx.fillRect(e.x*cellW, e.y*cellH, Math.ceil(cellW*esz), Math.ceil(cellH*esz));
   }
-  // player — bright white square
   mctx.fillStyle='#fff';
   mctx.fillRect(G.player.x*cellW-1, G.player.y*cellH-1, cellW+2, cellH+2);
 
@@ -1266,14 +1253,12 @@ function renderMapToCanvas(mc, fullscreen){
   mctx.strokeRect(0.5,0.5,W-1,H-1);
 
   if(fullscreen){
-    // Header bar
     mctx.fillStyle='rgba(0,0,0,0.75)'; mctx.fillRect(0,0,W,22);
     mctx.fillStyle='#666'; mctx.font=`12px 'Courier New'`;
     mctx.textAlign='left'; mctx.textBaseline='middle';
     mctx.fillText(`Floor ${G.floor}   @(${G.player.x}, ${G.player.y})`, 10, 11);
     mctx.textAlign='right';
     mctx.fillText(`${G.enemies.length} enemies remaining`, W-10, 11);
-    // Enemy legend in bottom-left
     const types=[...new Set(G.enemies.map(e=>e.type))];
     mctx.font=`11px 'Courier New'`; mctx.textAlign='left';
     types.forEach((type,i)=>{
@@ -1283,7 +1268,6 @@ function renderMapToCanvas(mc, fullscreen){
       mctx.fillStyle=def.col; mctx.fillRect(8,iy-4,8,8);
       mctx.fillStyle='#777'; mctx.fillText(`${def.name} ×${count}`,22,iy);
     });
-    // Stair legend
     mctx.fillStyle='#888800'; mctx.fillRect(W-80,H-18,8,8);
     mctx.fillStyle='#555'; mctx.textAlign='left';
     mctx.fillText('stairs',W-68,H-14);
@@ -1309,7 +1293,6 @@ function toggleMinimap(){
   MM.expanded=!MM.expanded;
   const overlay=document.getElementById('map-overlay');
   if(MM.expanded){
-    // Pause game silently (no pause menu)
     G.phase='paused';
     overlay.classList.add('active');
     document.getElementById('minimap-toggle').textContent='MAP [M] ▾';
@@ -1340,7 +1323,7 @@ let pauseSelectedIndex = 0;
 const PAUSE_ITEMS = ['resume','controls','quit'];
 
 function togglePause(){
-  if(MM.expanded) return; // minimap has its own pause, don't interfere
+  if(MM.expanded) return;
   if(G.phase==='playing'){
     G.phase='paused';
     document.getElementById('pause-overlay').classList.add('active');
@@ -1377,7 +1360,6 @@ function pauseSelect(){
   }
 }
 
-// Click handlers for pause items
 document.querySelectorAll('.p-item').forEach((el,i)=>{
   el.addEventListener('click',()=>{
     pauseSelectedIndex=i;
@@ -1411,7 +1393,6 @@ document.getElementById('legend-tab').addEventListener('click',()=>{
 function buildLegend(){
   const types=[...new Set(G.enemies.map(e=>e.type))];
   types.sort((a,b)=>ENEMY_DEFS[a].minFloor-ENEMY_DEFS[b].minFloor);
-  // Also include mimic types that are in items
   const mimicPresent=G.items.some(i=>i.kind==='mimic');
   if(mimicPresent && !types.includes('mimic')) types.unshift('mimic');
 
@@ -1426,7 +1407,6 @@ function buildLegend(){
     const itemCount=type==='mimic'?G.items.filter(i=>i.kind==='mimic').length:0;
     const count=enemyCount+itemCount;
     const sizeLabel=d.size===2?' <span style="color:#444">2×2</span>':'';
-    // Special mechanic tags
     const tags=[];
     if(d.enrage)     tags.push(`<span style="color:#ff6622">enrages</span>`);
     if(d.summon)     tags.push(`<span style="color:#aaddff">summoner</span>`);
@@ -1435,7 +1415,7 @@ function buildLegend(){
     if(d.onDeath)    tags.push(`<span style="color:#cc44ff">splits</span>`);
     if(d.slowPlayer) tags.push(`<span style="color:#88ccff">slows</span>`);
     if(d.mimic)      tags.push(`<span style="color:#cc9933">mimic</span>`);
-    const tagStr=tags.length?`<br>${tags.join(' ')}`: '';
+    const tagStr=tags.length?`<br>${tags.join(' ')}`:'';
     return `<div class="l-entry">
       <div class="l-head">
         <span class="l-ch" style="color:${d.col}">${d.ch}</span>
@@ -1451,7 +1431,6 @@ function buildLegend(){
   }).join('');
 }
 
-// Legend rebuild is called directly inside initFloor — see below
 const FONT5={
   D:[[1,1,1,0,0],[1,0,0,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,1,0],[1,1,1,0,0]],
   U:[[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,0]],
@@ -1528,6 +1507,20 @@ function drawTitleCanvas(){
 
 drawTitleCanvas();
 window.addEventListener('resize',drawTitleCanvas);
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FULLSCREEN BUTTON EVENT LISTENERS
+// ═══════════════════════════════════════════════════════════════════════
+const fullscreenBtn = document.getElementById('fullscreen-btn');
+if (fullscreenBtn) {
+  fullscreenBtn.addEventListener('click', toggleFullscreen);
+  fullscreenBtn.addEventListener('touchend', (e) => { e.preventDefault(); toggleFullscreen(); });
+  
+  document.addEventListener('fullscreenchange', updateFullscreenButton);
+  document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+  document.addEventListener('msfullscreenchange', updateFullscreenButton);
+}
+
 </script>
 </body>
 </html>
