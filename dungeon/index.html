@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>DUNGEON</title>
+<title>edward vierstra's dungeon</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 html,body { width:100%; height:100%; background:#000; color:#fff; font-family:'Courier New',Courier,monospace; overflow:hidden; user-select:none; }
@@ -164,7 +164,7 @@ canvas { display:block; }
   color:rgba(255,255,255,0.85);
   border-color:rgba(255,255,255,0.3);
 }
-/* cross layout: up=top-center, down=bottom-center, left=mid-left, right=mid-right */
+
 #dpad-up    { top:0;   left:50px; }
 #dpad-down  { top:100px; left:50px; }
 #dpad-left  { top:50px; left:0;   }
@@ -244,10 +244,10 @@ canvas { display:block; }
 <div id="overlay">
   <canvas id="title-canvas" style="display:block;max-width:100%;"></canvas>
   <div class="sub">
-    WASD / Arrows &nbsp;·&nbsp; bump enemies to attack &nbsp;·&nbsp; walk over items<br>
-    attack has a cooldown &nbsp;·&nbsp; big enemies take more hits &nbsp;·&nbsp; <span style="color:#888">&gt;</span> to descend
+    WASD / arrow keys &nbsp;·&nbsp; move into enemies to attack &nbsp;·&nbsp; <br>
+    survive lol &nbsp;·&nbsp; <span style="color:#888">&gt;</span> to descend
   </div>
-  <button class="btn" id="start-btn">[ ENTER THE DUNGEON ]</button>
+  <button class="btn" id="start-btn">[ enter the dungeon? ]</button>
 </div>
 <script>
 const canvas=document.getElementById('c');
